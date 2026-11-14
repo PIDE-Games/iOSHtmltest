@@ -1,32 +1,141 @@
-name: Build unsigned IPA
+name: Build unsigned IPA (iOS 9)
 on: [workflow_dispatch, push]
 jobs:
   build:
-    runs-on: macos-12
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 16 }
-      - name: Select Xcode 13.4.1 (last Xcode that can target iOS 9)
-        run: sudo xcode-select -s /Applications/Xcode_13.4.1.app
-      - name: Unpack project
-        run: unzip -q project.zip
-      - name: Cordova project
+      - name: Unpack game
+        run: unzip -q project.zip -d proj && ls proj/www | head -5
+      - name: Write native shell
         run: |
-          npm i -g cordova@9.0.0
-          cordova platform add ios@5.1.1
-          cordova prepare ios
-      - name: Build (unsigned)
-        working-directory: platforms/ios
+          mkdir -p native
+          cat > native/main.m <<'EOF'
+          #import <UIKit/UIKit.h>
+          #import <WebKit/WebKit.h>
+          @interface VC : UIViewController
+          @property(strong) WKWebView *web;
+          @end
+          @implementation VC
+          - (void)loadView {
+            WKWebViewConfiguration *c = [[WKWebViewConfiguration alloc] init];
+            if ([c respondsToSelector:@selector(setMediaTypesRequiringUserActionForPlayback:)]) {
+              c.mediaTypesRequiringUserActionForPlayback = WKAudiovisualMediaTypeNone;
+            } else {
+              @try { [c setValue:@NO forKey:@"mediaPlaybackRequiresUserAction"]; } @catch (id e) {}
+            }
+            c.allowsInlineMediaPlayback = YES;
+            @try { [c.preferences setValue:@YES forKey:@"allowFileAccessFromFileURLs"]; } @catch (id e) {}
+            @try { [c setValue:@YES forKey:@"allowUniversalAccessFromFileURLs"]; } @catch (id e) {}
+            WKWebView *w = [[WKWebView alloc] initWithFrame:[UIScreen mainScreen].bounds configuration:c];
+            w.scrollView.scrollEnabled = NO;
+            w.scrollView.bounces = NO;
+            w.opaque = NO;
+            w.backgroundColor = [UIColor blackColor];
+            w.scrollView.backgroundColor = [UIColor blackColor];
+            self.web = w;
+            self.view = w;
+          }
+          - (void)viewDidLoad {
+            [super viewDidLoad];
+            NSURL *www = [[NSBundle mainBundle] URLForResource:@"www" withExtension:nil];
+            NSURL *idx = [www URLByAppendingPathComponent:@"index.html"];
+            [self.web loadFileURL:idx allowingReadAccessToURL:www];
+          }
+          - (BOOL)prefersStatusBarHidden { return YES; }
+          - (BOOL)shouldAutorotate { return YES; }
+          - (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskLandscape; }
+          @end
+          @interface AD : UIResponder <UIApplicationDelegate>
+          @property(strong) UIWindow *window;
+          @end
+          @implementation AD
+          - (BOOL)application:(UIApplication *)a didFinishLaunchingWithOptions:(NSDictionary *)o {
+            self.window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+            self.window.backgroundColor = [UIColor blackColor];
+            self.window.rootViewController = [[VC alloc] init];
+            [self.window makeKeyAndVisible];
+            [UIApplication sharedApplication].idleTimerDisabled = YES;
+            return YES;
+          }
+          @end
+          int main(int argc, char *argv[]) {
+            @autoreleasepool { return UIApplicationMain(argc, argv, nil, NSStringFromClass([AD class])); }
+          }
+          EOF
+          cat > native/Info.plist <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleIdentifier</key><string>com.pixeldevs.supershirokiden</string>
+            <key>CFBundleName</key><string>Super Shiro Kid</string>
+            <key>CFBundleDisplayName</key><string>Super Shiro Kid</string>
+            <key>CFBundleExecutable</key><string>SuperShiroKid</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>3.3.3</string>
+            <key>CFBundleVersion</key><string>3.3.3</string>
+            <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+            <key>CFBundleDevelopmentRegion</key><string>en</string>
+            <key>CFBundleSupportedPlatforms</key><array><string>iPhoneOS</string></array>
+            <key>MinimumOSVersion</key><string>9.0</string>
+            <key>LSRequiresIPhoneOS</key><true/>
+            <key>UIDeviceFamily</key><array><integer>1</integer><integer>2</integer></array>
+            <key>UIRequiredDeviceCapabilities</key><array><string>arm64</string></array>
+            <key>UIRequiresFullScreen</key><true/>
+            <key>UIStatusBarHidden</key><true/>
+            <key>UIViewControllerBasedStatusBarAppearance</key><true/>
+            <key>UISupportedInterfaceOrientations</key><array>
+              <string>UIInterfaceOrientationLandscapeLeft</string>
+              <string>UIInterfaceOrientationLandscapeRight</string></array>
+            <key>UISupportedInterfaceOrientations~ipad</key><array>
+              <string>UIInterfaceOrientationLandscapeLeft</string>
+              <string>UIInterfaceOrientationLandscapeRight</string></array>
+            <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>
+            <key>UILaunchImages</key><array>
+              <dict><key>UILaunchImageName</key><string>L568</string><key>UILaunchImageMinimumOSVersion</key><string>7.0</string><key>UILaunchImageOrientation</key><string>Landscape</string><key>UILaunchImageSize</key><string>{320, 568}</string></dict>
+              <dict><key>UILaunchImageName</key><string>L667</string><key>UILaunchImageMinimumOSVersion</key><string>8.0</string><key>UILaunchImageOrientation</key><string>Landscape</string><key>UILaunchImageSize</key><string>{375, 667}</string></dict>
+              <dict><key>UILaunchImageName</key><string>L736</string><key>UILaunchImageMinimumOSVersion</key><string>8.0</string><key>UILaunchImageOrientation</key><string>Landscape</string><key>UILaunchImageSize</key><string>{414, 736}</string></dict>
+            </array>
+          </dict></plist>
+          EOF
+      - name: Compile for iOS 9 (arm64)
         run: |
-          xcodebuild -project "Super Shiro Kid.xcodeproj" -scheme "Super Shiro Kid" \
-            -configuration Release -sdk iphoneos -arch arm64 -arch armv7 \
-            IPHONEOS_DEPLOYMENT_TARGET=9.0 ONLY_ACTIVE_ARCH=NO \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
-            CONFIGURATION_BUILD_DIR="$PWD/out" build
-      - name: Package IPA
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          xcrun --sdk iphoneos clang -arch arm64 -miphoneos-version-min=9.0 -isysroot "$SDK" \
+            -fobjc-arc -Os -framework UIKit -framework WebKit -framework Foundation \
+            native/main.m -o SuperShiroKid
+          echo "--- load commands before patch"
+          otool -l SuperShiroKid | grep -A4 -E "LC_VERSION_MIN|LC_BUILD_VERSION" || true
+          # make sure an old iOS dyld sees a classic LC_VERSION_MIN_IPHONEOS (9.0)
+          xcrun vtool -remove-build-version ios -output stage1 SuperShiroKid || cp SuperShiroKid stage1
+          xcrun vtool -set-version-min ios 9.0 9.0 -output stage2 stage1 || cp stage1 stage2
+          mv stage2 SuperShiroKid
+          echo "--- load commands after patch"
+          otool -l SuperShiroKid | grep -A4 -E "LC_VERSION_MIN|LC_BUILD_VERSION" || true
+      - name: Assemble app and IPA
         run: |
-          mkdir Payload && cp -R "platforms/ios/out/Super Shiro Kid.app" Payload/
+          APP=Payload/SuperShiroKid.app
+          mkdir -p "$APP"
+          cp SuperShiroKid "$APP/"
+          cp native/Info.plist "$APP/Info.plist"
+          cp -R proj/www "$APP/www"
+          python3 - <<'PY'
+          import zlib, struct
+          def png(path, w, h):
+              raw = b''.join(b'\x00' + b'\x00\x00\x00' * w for _ in range(h))
+              def ch(t, d):
+                  c = struct.pack('>I', len(d)) + t + d
+                  return c + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+              open(path, 'wb').write(b'\x89PNG\r\n\x1a\n' + ch(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) + ch(b'IDAT', zlib.compress(raw)) + ch(b'IEND', b''))
+          d = 'Payload/SuperShiroKid.app/'
+          png(d + 'L568-Landscape-568h@2x.png', 1136, 640)
+          png(d + 'L667-Landscape-667h@2x.png', 1334, 750)
+          png(d + 'L736-Landscape-736h@3x.png', 2208, 1242)
+          PY
+          codesign -f -s - "$APP/SuperShiroKid" || true
           zip -qr SuperShiroKid.ipa Payload
+          ls -la SuperShiroKid.ipa
       - uses: actions/upload-artifact@v4
-        with: { name: SuperShiroKid-ipa, path: SuperShiroKid.ipa }
+        with:
+          name: SuperShiroKid-ipa
+          path: SuperShiroKid.ipa
