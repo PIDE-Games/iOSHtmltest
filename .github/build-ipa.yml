@@ -1,0 +1,56 @@
+name: Build IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    # Default: GitHub-hosted Mac (arm64 only, iOS 12+).
+    # For armv7 / iOS 9: add a repo variable RUNNER = self-hosted
+    # and use a Mac with Xcode 13.x installed.
+    runs-on: ${{ vars.RUNNER || 'macos-15' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          if [ -d /Applications/Xcode_13.4.1.app ]; then
+            sudo xcode-select -s /Applications/Xcode_13.4.1.app
+          elif [ -d /Applications/Xcode_16.4.app ]; then
+            sudo xcode-select -s /Applications/Xcode_16.4.app
+          fi
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: which xcodegen || brew install xcodegen
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Build (unsigned)
+        run: |
+          XC_MAJOR=$(xcodebuild -version | head -1 | sed -E 's/Xcode ([0-9]+).*/\1/')
+          if [ "$XC_MAJOR" -ge 14 ]; then
+            echo "::warning::Xcode $XC_MAJOR cannot build armv7 or target iOS 9. Building arm64, iOS 12+."
+            EXTRA="ARCHS=arm64 VALID_ARCHS=arm64 IPHONEOS_DEPLOYMENT_TARGET=12.0"
+          else
+            EXTRA="ARCHS=armv7\ arm64 IPHONEOS_DEPLOYMENT_TARGET=9.0"
+          fi
+          eval xcodebuild -project SuperShiroKid.xcodeproj \
+            -scheme SuperShiroKid -configuration Release -sdk iphoneos \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO $EXTRA build
+
+      - name: Package IPA
+        run: |
+          APP=build/Build/Products/Release-iphoneos/SuperShiroKid.app
+          lipo -info "$APP/SuperShiroKid"
+          mkdir -p out/Payload
+          cp -R "$APP" out/Payload/
+          cd out && zip -qry SuperShiroKid-unsigned.ipa Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SuperShiroKid-unsigned-ipa
+          path: out/SuperShiroKid-unsigned.ipa
